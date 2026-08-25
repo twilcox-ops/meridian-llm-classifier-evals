@@ -1,0 +1,19 @@
+[project]
+name = "meridian-llm-classifier-evals"
+version = "0.1.0"
+description = "LLM support-ticket classifier with a measured eval harness: held-out accuracy, confusion matrix, cost/latency, and confidence-based model routing."
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.39",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

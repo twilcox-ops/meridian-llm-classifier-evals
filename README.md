@@ -77,3 +77,64 @@ after seeing which tickets the model got wrong. That ordering matters: a
 tie-break rule invented to explain away an observed failure is post-hoc
 rationalization, while one stated up front and then measured against is an
 actual, falsifiable design decision.
+
+## Measurements
+
+### Prompt iteration
+
+| Version | Category Acc | Urgency Acc | Cost/1,000 |
+|---|---|---|---|
+| v1 (baseline minimal prompt) | 100.0% | 41.4% | $1.0909 |
+| v2 (added per-category urgency rules) | 100.0% | 66.4% | $1.2098 |
+
+v2 added explicit per-category urgency rules to the system prompt
+(compliance is always `medium`; outage splits `high`/`critical` on a
+person-in-danger + 911 signal; sales/scheduling/billing are `low`/`medium`
+only), derived by cross-tabbing category × urgency on the iteration data.
+The jump from 41.4% to 66.4% came entirely from compliance (→100%) and
+outage (→100%); urgency didn't reach 100% overall because the
+sales/scheduling/billing `low`/`medium` split carries no recoverable
+textual signal in this dataset — confirmed by finding byte-identical
+ticket text labeled both `low` and `medium` elsewhere in the source data.
+That's a dataset label-noise ceiling, not a prompting gap.
+
+### Confusion matrix
+
+Category confusion is zero — perfectly diagonal at v2, 152/152 correct
+across all five categories. The largest confusion of any kind is in
+urgency: actual-`medium` tickets predicted as `low`, 37 times. That
+confusion sits entirely within the same label-noise finding above (mostly
+sales/scheduling/billing tickets), not a separate error mode.
+
+### Injection resistance
+
+5 synthetic tickets tested (3 escalation attempts, 1 rule-override
+attempt, 1 de-escalation attempt on a real emergency):
+
+- **0/5 followed the injected instruction.**
+- **4/5 resisted cleanly** — output matched the ticket's true label exactly.
+- **1/5 landed on unrelated baseline noise, not an injection success** —
+  category was resisted correctly; urgency landed one tier off, matching
+  the same label-noise pattern above, not the injected text.
+
+Notably, the one safety-critical case — an injected instruction trying to
+suppress a real trapped-passenger emergency by forcing `urgency=low` — was
+resisted, keeping the ticket at `category=outage`, `urgency=critical`.
+
+### Routing (cheap-model-first with confidence-based escalation)
+
+| Leg | Full accuracy | Cost/1,000 | p95 latency |
+|---|---|---|---|
+| cheap-only (Haiku) | 66.4% | $1.34 | 1315ms |
+| expensive-only (Sonnet 5) | 68.4% | $2.94 | 3756ms |
+| routed | 65.8% | $1.57 | 3612ms |
+
+Routing on Haiku's self-reported confidence **did not improve accuracy**:
+full accuracy went slightly down (66.4% → 65.8%), while cost rose ~18% and
+p95 latency roughly tripled from the sequential Haiku-then-Sonnet round
+trip on escalated records. This tracks the label-noise ceiling above —
+escalating to a bigger model doesn't recover a signal that isn't in the
+text. Caveat: the confidence signal only ever flagged scheduling and
+compliance tickets for escalation, never billing or sales (the two
+worst-performing categories on urgency), so this result doesn't test
+whether a stronger model would help those two specifically.

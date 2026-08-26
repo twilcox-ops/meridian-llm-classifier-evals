@@ -138,3 +138,31 @@ text. Caveat: the confidence signal only ever flagged scheduling and
 compliance tickets for escalation, never billing or sales (the two
 worst-performing categories on urgency), so this result doesn't test
 whether a stronger model would help those two specifically.
+
+## Setup
+
+```powershell
+git clone <repo-url> project-4-llm-classifier-evals
+cd project-4-llm-classifier-evals
+
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+
+copy .env.example .env      # then edit .env and add your ANTHROPIC_API_KEY
+
+python -m src.eval_harness
+```
+
+**Windows note:** if `python -m venv .venv` fails with
+`CommandNotFoundException`, neither `python` nor `py` may be on `PATH` on
+this machine (confirmed on the machine this was built on). A working
+interpreter may still exist — check
+`%LOCALAPPDATA%\Microsoft\WindowsApps\` or wherever the Python installer
+placed it — and either add that directory to `PATH`, or invoke venv
+creation with the interpreter's full path:
+`& "C:\path\to\python.exe" -m venv .venv`.
+
+The eval harness makes real Anthropic API calls (roughly 150 Haiku calls
+plus ~150 Sonnet calls for the expensive-only and routed legs) — expect it
+to take several minutes and cost a small amount on a real API key.

@@ -419,6 +419,7 @@ def print_report(results: dict) -> None:
     print()
     print(f"Overall category accuracy: {results['category_accuracy']:.1%}")
     print(f"Overall urgency accuracy:  {results['urgency_accuracy']:.1%}")
+    print(f"Overall full accuracy:     {results['full_accuracy']:.1%}  (category AND urgency both correct)")
     print()
     print("Per-category accuracy:")
     for cat, acc in sorted(results["per_category_accuracy"].items()):

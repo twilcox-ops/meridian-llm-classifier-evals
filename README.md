@@ -166,3 +166,81 @@ creation with the interpreter's full path:
 The eval harness makes real Anthropic API calls (roughly 150 Haiku calls
 plus ~150 Sonnet calls for the expensive-only and routed legs) — expect it
 to take several minutes and cost a small amount on a real API key.
+
+## What I'd do differently
+
+**Fix the label, not just the model.** The sales/scheduling/billing
+`low`/`medium` split turned out to carry no recoverable signal — the
+clearest proof was finding byte-identical ticket text labeled both `low`
+and `medium` elsewhere in the source data. In this project the right
+response was to document that ceiling and stop chasing it with prompt
+changes. In a real production dataset, that's the wrong place to stop:
+the actual fix is going back to whoever wrote the labeling guidelines and
+either giving them a concrete tie-break rule for that split (the way the
+category tie-break rule already exists) or accepting that urgency isn't
+reliably knowable from ticket text alone for those categories and building
+the workflow around that fact — not eating an accuracy ceiling forever
+because the eval harness can measure around it.
+
+**The confidence signal has a blind spot, and I'd stop trusting it alone.**
+Haiku's self-reported confidence only ever flagged scheduling and
+compliance tickets for escalation — it never flagged billing or sales,
+which were the two worst-performing categories on urgency (35.5% and
+53.3%). That means the model doesn't know what it doesn't know, at least
+not in a way that lines up with where it's actually wrong, and routing
+built entirely on top of that signal inherits the same blind spot. A next
+iteration would either add per-category routing rules (e.g. always
+escalate billing/sales regardless of reported confidence, since the cheap
+model's own uncertainty estimate can't be trusted there) or try a
+differently-calibrated confidence signal — self-consistency across
+repeated samples, or a separate judge call — rather than taking one
+model's word for how sure it is about itself.
+
+**What was deliberately left out, and why.** The stretch goals — LLM-as-
+judge on the ambiguous cases, the Batch API for the bulk run, and testing
+against a sixth unseen category — were marked out of scope at the start,
+before any code was written, not dropped later when time ran short. Given
+the time available, the better use of it was going deep on the required
+acceptance criteria (the held-out split, the confusion matrix, the
+tie-break rule, injection resistance, routing) and running each of them to
+an actual, defensible conclusion — including the unglamorous one, that
+routing didn't help here — rather than spreading the same time across more
+surface area and ending with several things half-verified instead of a few
+things fully verified.
+
+## Final held-out results
+
+The 40-record held-out set (`data/holdout.jsonl`) was scored exactly once,
+via `scripts/run_holdout.py`, after all prompt iteration above was
+finished — this is that one run, unedited:
+
+- **Category accuracy: 100.0%**
+- **Urgency accuracy: 77.5%**
+- **Full accuracy: 77.5%** (category and urgency both correct)
+
+This confirms the iteration-set findings rather than contradicting them.
+Category classification generalizes perfectly to data the classifier never
+saw during tuning. The urgency ceiling reproduces too, and it's driven by
+the same two categories: `billing` (20.0%) and `sales` (50.0%), against
+`compliance` and `outage` staying at 100.0%. Caveat: with only 5–7 records
+per category in the held-out set, per-category urgency percentages carry
+real sampling noise — a single flipped record moves `billing`'s number by
+20 points — so these should be read as "still the weak categories," not as
+precise rates.
+
+**Scope caveat on what this actually demonstrates.** The v2 urgency rules
+were derived from this dataset's category × urgency correlation —
+`compliance` was `medium` in all 32/32 iteration-set records with no
+exceptions, a pattern strong enough to suggest the synthetic data
+generator encoded urgency as a fixed function of category for some labels,
+rather than something that varies within them. The held-out result confirms
+the classifier correctly reproduces *this dataset's specific taxonomy* on
+unseen records from the same generator. It does not demonstrate that the
+same rules would hold on real, independently-labeled production tickets,
+where a compliance issue's true urgency could plausibly vary case by case.
+That's the honest scope of this result — not a weakness to downplay, but
+the actual boundary of what a held-out set from the same generator can and
+can't prove.
+
+No further prompt changes were made after this run. This is the final,
+reported number.

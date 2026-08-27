@@ -233,6 +233,15 @@ routing didn't help here — rather than spreading the same time across more
 surface area and ending with several things half-verified instead of a few
 things fully verified.
 
+**Why not fine-tune?** The dataset is small (192 labeled records total),
+and the prompt-based approach already reached 100% category accuracy —
+fine-tuning would add real infrastructure cost and complexity (a training
+pipeline, versioned model artifacts, a retraining story for prompt/data
+changes) without a clear problem left for it to solve, given prompting
+alone closed the gap. Fine-tuning earns its cost when prompting has a
+ceiling it can't cross; here it doesn't have one on the metric that
+matters most.
+
 ## Final held-out results
 
 The 40-record held-out set (`data/holdout.jsonl`) was scored via

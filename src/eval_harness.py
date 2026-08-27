@@ -263,6 +263,7 @@ def run_eval(records: list[dict]) -> dict:
         "model": MODEL,
         "total": total,
         "schema_failures": schema_failures,
+        "schema_failure_rate": schema_failures / total if total else 0.0,
         "category_accuracy": category_correct_total / total if total else 0.0,
         "urgency_accuracy": urgency_correct_total / total if total else 0.0,
         "full_accuracy": full_correct_total / total if total else 0.0,
@@ -475,7 +476,10 @@ def print_largest_confusion(kind: str, largest: Optional[tuple], count: int) -> 
 def print_report(results: dict) -> None:
     print(f"Model: {results['model']}")
     print(f"Records evaluated: {results['total']}")
-    print(f"Schema-validation failures: {results['schema_failures']}")
+    print(
+        f"Schema-validation failures: {results['schema_failures']} "
+        f"({results['schema_failure_rate']:.1%})"
+    )
     print()
     print(f"Overall category accuracy: {results['category_accuracy']:.1%}")
     print(f"Overall urgency accuracy:  {results['urgency_accuracy']:.1%}")

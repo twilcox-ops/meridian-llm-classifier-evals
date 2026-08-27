@@ -7,15 +7,28 @@ confidence is not "high", via `route_classify()`).
 
 | Leg | Full accuracy | Cost / 1,000 | p95 latency |
 |---|---|---|---|
-| cheap-only (Haiku) | 66.4% | $1.34 | 1315ms |
-| expensive-only (Sonnet 5) | 68.4% | $2.94 | 3756ms |
-| routed | 65.8% | $1.57 | 3612ms |
+| cheap-only (Haiku) | 66.4% | $1.33 | 1508ms |
+| expensive-only (Sonnet 5) | 71.1% | $2.89 | 3153ms |
+| routed | 66.4% | $1.58 | 3661ms |
+
+**Note on reproducibility:** these three numbers move slightly between runs
+of this harness — cheap-only's figures are pinned (Haiku, temperature 0)
+and reproduce exactly, but expensive-only and routed both call Sonnet 5,
+which rejects the `temperature` parameter outright (see the comment above
+`classify_with_sonnet()` in `src/classify.py`), so those two legs are not
+guaranteed bit-for-bit reproducible run to run. The table above is one
+run's numbers, not a fixed constant — expect a few points of drift on
+re-run.
 
 **Routing on Haiku's self-reported confidence did not improve accuracy
-here.** Full accuracy went slightly *down* (66.4% → 65.8%, a difference of
-one record out of 152), while cost rose ~18% ($1.34 → $1.57 per 1,000) and
-p95 latency roughly tripled (1315ms → 3612ms) from the sequential
-Haiku-then-Sonnet round trip on escalated records.
+here.** Full accuracy came back identical (66.4% cheap-only vs. 66.4%
+routed — no net change), while cost rose ~19% ($1.33 → $1.58 per 1,000) and
+p95 latency more than doubled (1508ms → 3661ms) from the sequential
+Haiku-then-Sonnet round trip on the 13/152 (8.6%) escalated records. In an
+earlier run, routed accuracy had actually landed a hair *below* cheap-only
+(66.4% → 65.8%); this run it landed exactly even. Both outcomes tell the
+same story: routing bought no measurable accuracy gain here, at real cost
+and latency.
 
 This is consistent with the earlier finding that the accuracy gap is a
 **dataset label-noise ceiling, not a model-capability gap**: escalating to

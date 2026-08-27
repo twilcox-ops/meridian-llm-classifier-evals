@@ -1,11 +1,15 @@
 """Single-command eval harness for the ticket classifier.
 
 Runs classify() over data/iteration.jsonl and reports overall accuracy,
-per-category accuracy, confusion matrices, self-reported-confidence
-calibration, and cost/latency based on actual token usage and wall-clock
-time. Also runs the spec's three-way cost/latency/accuracy comparison:
-cheap-only (Haiku alone), expensive-only (Sonnet alone), and routed
-(Haiku, escalating to Sonnet on confidence != "high" via route_classify()).
+per-category precision and recall (two distinct numbers — see
+per_category_precision/per_category_recall below, not a renamed accuracy),
+confusion matrices, ambiguous-subset accuracy (tagged from the source
+data's "ambiguous": true field on already-made classify() calls, no extra
+API calls), self-reported-confidence calibration, and cost/latency based on
+actual token usage and wall-clock time. Also runs the spec's three-way
+cost/latency/accuracy comparison: cheap-only (Haiku alone), expensive-only
+(Sonnet alone), and routed (Haiku, escalating to Sonnet on confidence !=
+"high" via route_classify()).
 
 NEVER point this at data/holdout.jsonl. The held-out 40 records are read
 exactly once, at the end of iteration, for the final reported numbers —
@@ -110,11 +114,24 @@ def run_eval(records: list[dict]) -> dict:
     per_confidence_category_correct = defaultdict(int)
     per_confidence_urgency_correct = defaultdict(int)
 
+    # Ambiguous-subset accuracy: tagged from the "ambiguous": true field
+    # already present on ~12 of the 192 source records (the ones that
+    # genuinely span two categories) while iterating — no separate API
+    # calls, just a second set of counters fed by the same classify() call
+    # every other record already gets.
+    ambiguous_total = 0
+    ambiguous_category_correct = 0
+    ambiguous_urgency_correct = 0
+    ambiguous_full_correct = 0
+
     for record in records:
         true_category = record["label_category"]
         true_urgency = record["label_urgency"]
+        is_ambiguous = record.get("ambiguous") is True
         per_category_total[true_category] += 1
         per_category_urgency_total[true_category] += 1
+        if is_ambiguous:
+            ambiguous_total += 1
 
         start = time.perf_counter()
         result = classify(record["text"])
@@ -144,6 +161,14 @@ def run_eval(records: list[dict]) -> dict:
         if category_correct and urgency_correct:
             full_correct_total += 1
 
+        if is_ambiguous:
+            if category_correct:
+                ambiguous_category_correct += 1
+            if urgency_correct:
+                ambiguous_urgency_correct += 1
+            if category_correct and urgency_correct:
+                ambiguous_full_correct += 1
+
         per_confidence_total[result.confidence] += 1
         if category_correct:
             per_confidence_category_correct[result.confidence] += 1
@@ -157,14 +182,44 @@ def run_eval(records: list[dict]) -> dict:
     )
     cost_per_1000_usd = (total_cost_usd / total) * 1000 if total else 0.0
 
-    per_category_accuracy = {
+    # Recall per category: of tickets actually in this category, what
+    # fraction were predicted correctly (row sums of the confusion matrix —
+    # per_category_total, keyed by actual/true category).
+    per_category_recall = {
         cat: per_category_correct[cat] / per_category_total[cat]
         for cat in per_category_total
     }
+
+    # Precision per category: of tickets PREDICTED as this category
+    # (regardless of what they actually were), what fraction were actually
+    # correct — column sums of the confusion matrix, not row sums. A category
+    # can have perfect recall and poor precision (everything that's actually
+    # X gets caught, but plenty of non-X also gets mislabeled X), so this is
+    # a genuinely different number from recall, not just a rename.
+    per_category_predicted_total = defaultdict(int)
+    for predicted_counts in confusion.values():
+        for predicted, count in predicted_counts.items():
+            per_category_predicted_total[predicted] += count
+    per_category_precision = {
+        cat: confusion[cat].get(cat, 0) / per_category_predicted_total[cat]
+        for cat in CATEGORIES
+        if per_category_predicted_total[cat]
+    }
+
     per_category_urgency_accuracy = {
         cat: per_category_urgency_correct[cat] / per_category_urgency_total[cat]
         for cat in per_category_urgency_total
     }
+
+    ambiguous_category_accuracy = (
+        ambiguous_category_correct / ambiguous_total if ambiguous_total else None
+    )
+    ambiguous_urgency_accuracy = (
+        ambiguous_urgency_correct / ambiguous_total if ambiguous_total else None
+    )
+    ambiguous_full_accuracy = (
+        ambiguous_full_correct / ambiguous_total if ambiguous_total else None
+    )
 
     def largest_off_diagonal(matrix: dict) -> tuple[Optional[tuple], int]:
         largest = None
@@ -211,8 +266,13 @@ def run_eval(records: list[dict]) -> dict:
         "category_accuracy": category_correct_total / total if total else 0.0,
         "urgency_accuracy": urgency_correct_total / total if total else 0.0,
         "full_accuracy": full_correct_total / total if total else 0.0,
-        "per_category_accuracy": per_category_accuracy,
+        "per_category_recall": per_category_recall,
+        "per_category_precision": per_category_precision,
         "per_category_urgency_accuracy": per_category_urgency_accuracy,
+        "ambiguous_total": ambiguous_total,
+        "ambiguous_category_accuracy": ambiguous_category_accuracy,
+        "ambiguous_urgency_accuracy": ambiguous_urgency_accuracy,
+        "ambiguous_full_accuracy": ambiguous_full_accuracy,
         "confusion": confusion,
         "largest_confusion": largest_confusion,
         "largest_confusion_count": largest_confusion_count,
@@ -421,9 +481,17 @@ def print_report(results: dict) -> None:
     print(f"Overall urgency accuracy:  {results['urgency_accuracy']:.1%}")
     print(f"Overall full accuracy:     {results['full_accuracy']:.1%}  (category AND urgency both correct)")
     print()
-    print("Per-category accuracy:")
-    for cat, acc in sorted(results["per_category_accuracy"].items()):
-        print(f"  {cat:<12} {acc:.1%}")
+    print("Per-category recall (of tickets actually X, % predicted correctly):")
+    for cat, val in sorted(results["per_category_recall"].items()):
+        print(f"  {cat:<12} {val:.1%}")
+    print()
+    print("Per-category precision (of tickets predicted X, % actually correct):")
+    for cat in sorted(CATEGORIES):
+        val = results["per_category_precision"].get(cat)
+        if val is None:
+            print(f"  {cat:<12} n/a (never predicted)")
+        else:
+            print(f"  {cat:<12} {val:.1%}")
     print()
     print("Per-category urgency accuracy:")
     for cat, acc in sorted(results["per_category_urgency_accuracy"].items()):
@@ -455,6 +523,20 @@ def print_report(results: dict) -> None:
             f"category={stats['category_accuracy']:.1%}  "
             f"urgency={stats['urgency_accuracy']:.1%}"
         )
+    print()
+    if results["ambiguous_total"]:
+        print(
+            f"Ambiguous subset accuracy ({results['ambiguous_total']} records -- "
+            f"tickets that genuinely span two categories, a separate question "
+            f"from overall accuracy):"
+        )
+        print(
+            f"  category={results['ambiguous_category_accuracy']:.1%}  "
+            f"urgency={results['ambiguous_urgency_accuracy']:.1%}  "
+            f"full={results['ambiguous_full_accuracy']:.1%}"
+        )
+    else:
+        print("Ambiguous subset accuracy: no ambiguous-flagged records in this set.")
     print()
     # This is the cheap-only (Haiku) leg's detail. The full three-way
     # breakdown (cheap-only / expensive-only / routed) prints separately —

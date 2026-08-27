@@ -196,6 +196,17 @@ def classify(ticket_text: str) -> ClassificationResult:
     return _classify_with_model(ticket_text, MODEL, use_temperature=True)
 
 
+# NOTE ON DETERMINISM: unlike classify() (Haiku), this call passes
+# use_temperature=False because Sonnet 5 rejects the temperature parameter
+# outright (confirmed live: a raw call with extra_body={"temperature": 0}
+# against claude-sonnet-5 returns a 400, "temperature is deprecated for
+# this model"). So this call is NOT pinned to temperature 0 the way
+# classify() is — any eval leg that touches this function (expensive-only,
+# and the routed leg's escalated records) is not guaranteed bit-for-bit
+# reproducible run to run, even though the model itself is pinned
+# (SONNET_MODEL is a fixed model name). The "runs deterministically enough
+# to be a regression test" property fully holds only for the cheap-only
+# (Haiku) leg.
 def classify_with_sonnet(ticket_text: str) -> ClassificationResult:
     """Classify one ticket's text with the escalation model (Sonnet 5)."""
     return _classify_with_model(ticket_text, SONNET_MODEL, use_temperature=False)

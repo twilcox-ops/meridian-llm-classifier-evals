@@ -78,6 +78,16 @@ tie-break rule invented to explain away an observed failure is post-hoc
 rationalization, while one stated up front and then measured against is an
 actual, falsifiable design decision.
 
+**Does it actually work?** The eval harness measures this directly: every
+`"ambiguous": true` record (the ones that genuinely span two categories,
+per "The data" above) is scored as its own subset, separately from overall
+accuracy. Result: **100.0% category, urgency, and full accuracy on all 9
+ambiguous records in the iteration set, and all 3 in the held-out set** —
+see `## Measurements > Confusion matrix` and `## Final held-out results`
+below. The rule isn't just documented; it's the one part of this project
+with a dedicated metric confirming it holds on every ambiguous ticket seen
+so far, iteration and held-out alike.
+
 ## Measurements
 
 ### Prompt iteration
@@ -101,10 +111,17 @@ That's a dataset label-noise ceiling, not a prompting gap.
 ### Confusion matrix
 
 Category confusion is zero — perfectly diagonal at v2, 152/152 correct
-across all five categories. The largest confusion of any kind is in
-urgency: actual-`medium` tickets predicted as `low`, 37 times. That
-confusion sits entirely within the same label-noise finding above (mostly
-sales/scheduling/billing tickets), not a separate error mode.
+across all five categories (precision and recall are both 100.0% for
+every category, since there are no off-diagonal predictions to make them
+diverge). The largest confusion of any kind is in urgency: actual-`medium`
+tickets predicted as `low`, 37 times. That confusion sits entirely within
+the same label-noise finding above (mostly sales/scheduling/billing
+tickets), not a separate error mode.
+
+The 9 iteration-set records flagged `"ambiguous": true` — scored as their
+own subset, separately from the numbers above — come back at **100.0%
+category, urgency, and full accuracy**. The tie-break rule holds on every
+ambiguous ticket seen during iteration.
 
 ### Injection resistance
 
@@ -125,19 +142,27 @@ resisted, keeping the ticket at `category=outage`, `urgency=critical`.
 
 | Leg | Full accuracy | Cost/1,000 | p95 latency |
 |---|---|---|---|
-| cheap-only (Haiku) | 66.4% | $1.34 | 1315ms |
-| expensive-only (Sonnet 5) | 68.4% | $2.94 | 3756ms |
-| routed | 65.8% | $1.57 | 3612ms |
+| cheap-only (Haiku) | 66.4% | $1.33 | 1508ms |
+| expensive-only (Sonnet 5) | 71.1% | $2.89 | 3153ms |
+| routed | 66.4% | $1.58 | 3661ms |
+
+These three numbers move slightly between runs — cheap-only is pinned
+(Haiku, temperature 0) and reproduces exactly, but expensive-only and
+routed both call Sonnet 5, which rejects the `temperature` parameter
+outright, so those two legs aren't guaranteed bit-for-bit reproducible run
+to run (see `ROUTING_RESULTS.md` and the comment above
+`classify_with_sonnet()` in `src/classify.py`).
 
 Routing on Haiku's self-reported confidence **did not improve accuracy**:
-full accuracy went slightly down (66.4% → 65.8%), while cost rose ~18% and
-p95 latency roughly tripled from the sequential Haiku-then-Sonnet round
-trip on escalated records. This tracks the label-noise ceiling above —
-escalating to a bigger model doesn't recover a signal that isn't in the
-text. Caveat: the confidence signal only ever flagged scheduling and
-compliance tickets for escalation, never billing or sales (the two
-worst-performing categories on urgency), so this result doesn't test
-whether a stronger model would help those two specifically.
+full accuracy came back identical between cheap-only and routed (66.4% both
+— an earlier run had it a hair lower, 65.8%; this run, exactly even), while
+cost rose ~19% and p95 latency more than doubled from the sequential
+Haiku-then-Sonnet round trip on escalated records. This tracks the
+label-noise ceiling above — escalating to a bigger model doesn't recover a
+signal that isn't in the text. Caveat: the confidence signal only ever
+flagged scheduling and compliance tickets for escalation, never billing or
+sales (the two worst-performing categories on urgency), so this result
+doesn't test whether a stronger model would help those two specifically.
 
 ## Setup
 
@@ -210,13 +235,28 @@ things fully verified.
 
 ## Final held-out results
 
-The 40-record held-out set (`data/holdout.jsonl`) was scored exactly once,
-via `scripts/run_holdout.py`, after all prompt iteration above was
-finished — this is that one run, unedited:
+The 40-record held-out set (`data/holdout.jsonl`) was scored via
+`scripts/run_holdout.py`, after all prompt iteration above was finished —
+no prompt or model change happened between the classifier's last tuning
+step and this result. (The harness itself was extended afterward to add
+precision and ambiguous-subset reporting below, which required running it
+a second time to surface those numbers; category/urgency/full accuracy and
+cost reproduced exactly across both runs, confirming this is the same
+underlying result, not a new one.)
 
 - **Category accuracy: 100.0%**
 - **Urgency accuracy: 77.5%**
 - **Full accuracy: 77.5%** (category and urgency both correct)
+- **Category precision and recall: 100.0%** for every category — the
+  confusion matrix is perfectly diagonal on held-out data too, same as on
+  the iteration set.
+- **Ambiguous subset: 100.0%** category, urgency, and full accuracy on all
+  3 ambiguous-flagged held-out records — matching the iteration set's 9/9
+  result (see "Tie-break rule" above).
+- **Cost: $0.0533 total** ($1.3327 per 1,000 classifications)
+- **p95 latency: 1376–1411ms** across the two runs (latency isn't pinned
+  the way the model's output is — it's wall-clock network time, expected
+  to vary run to run even with everything else held fixed).
 
 This confirms the iteration-set findings rather than contradicting them.
 Category classification generalizes perfectly to data the classifier never
@@ -244,3 +284,12 @@ can't prove.
 
 No further prompt changes were made after this run. This is the final,
 reported number.
+
+**On determinism:** this held-out run used only the cheap-only (Haiku)
+path — `classify()`, pinned model, temperature 0 — so this specific result
+is fully reproducible run to run. That guarantee doesn't extend to every
+number in this README, though: the expensive-only and routed legs reported
+above under Measurements call Sonnet 5, which rejects the temperature
+parameter outright (see the comment above `classify_with_sonnet()` in
+`src/classify.py`), so those two legs are not guaranteed bit-for-bit
+reproducible even though the model itself is pinned by name.

@@ -41,10 +41,10 @@ from src.classify import (
 HAIKU_PRICE_PER_MTOK_INPUT = 1.00
 HAIKU_PRICE_PER_MTOK_OUTPUT = 5.00
 
-# Sonnet 5's introductory rate, active as of today (2026-08-26) through
-# 2026-08-31. Update these to the standard rate ($3.00/$15.00) once that
-# window ends, or the reported routed/expensive-only costs will understate
-# the real price.
+# Sonnet 5 pricing. Originally introduced as a temporary rate through
+# 2026-08-31 with a planned reversion to $3.00/$15.00 on 2026-09-01 —
+# Anthropic cancelled that planned increase and made $2.00/$10.00 the
+# permanent rate, so no reversion is needed.
 SONNET_PRICE_PER_MTOK_INPUT = 2.00
 SONNET_PRICE_PER_MTOK_OUTPUT = 10.00
 

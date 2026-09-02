@@ -43,11 +43,6 @@ def write_jsonl(path: Path, records: list[dict]) -> None:
             f.write(json.dumps(record) + "\n")
 
 
-def stratified_holdout_count(stratum_size: int, total_size: int, holdout_size: int) -> int:
-    """Proportional allocation, rounded down; remainder resolved by caller."""
-    return (stratum_size * holdout_size) // total_size
-
-
 def split(records: list[dict], seed: int, holdout_size: int) -> tuple[list[dict], list[dict]]:
     ambiguous = [r for r in records if r.get("ambiguous") is True]
     normal = [r for r in records if r.get("ambiguous") is not True]
